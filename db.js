@@ -37,7 +37,7 @@ const NOTES_COL  = "notas";
 
 // Usuários ADM padrão — só serão criados se ainda não existirem
 const DEFAULT_USERS = [
-  { id: "1", name: "Leonardo", username: "Snapv", password: "Leonardo12@", role: "adm", createdAt: "27/05/2025" },
+  { id: "1", name: "Leonardo", username: "Leonardo", password: "Leonardo12@", role: "adm", createdAt: "27/05/2025" },
   { id: "2", name: "Abner",    username: "abner",    password: "adm123", role: "adm", createdAt: "27/05/2025" },
   { id: "3", name: "Isabela",  username: "isabela",  password: "adm123", role: "adm", createdAt: "27/05/2025" },
   { id: "4", name: "Matheus",  username: "matheus",  password: "adm123", role: "adm", createdAt: "27/05/2025" },
