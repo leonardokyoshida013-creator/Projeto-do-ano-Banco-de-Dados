@@ -1,11 +1,3 @@
-// ============================================================
-//  db.js — Camada de Banco de Dados com Segurança Criptográfica
-//  - Compatível com protocolo file:/// e servidores HTTP (sem erro de CORS)
-//  - Hashing PBKDF2 com Salt de 16 bytes via Web Crypto API
-//  - Integração com Firebase Firestore + Fallback automático em localStorage
-//  - Sanitização rigorosa contra vazamento de credenciais
-// ============================================================
-
 (function(window) {
   'use strict';
 
@@ -124,8 +116,7 @@
     };
   }
 
-  // Usuários ADM padrão com hashes PBKDF2 pré-computados
-  // Senhas: Leonardo -> 'Leonardo12@' | abner, isabela, matheus -> 'adm123'
+
   const DEFAULT_USERS = [
     {
       id: "1",
