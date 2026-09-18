@@ -8,7 +8,8 @@
 //  - Interatividade estética: medidor de força, alternador de senha e busca
 // ============================================================
 
-import { DB } from './db.js';
+// Acesso ao banco de dados seguro inicializado globalmente
+const DB = window.DB;
 
 let currentUser = null;
 let cachedAllUsers = [];
