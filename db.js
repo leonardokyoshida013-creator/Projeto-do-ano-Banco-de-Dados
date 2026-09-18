@@ -1,3 +1,5 @@
+
+
 (function(window) {
   'use strict';
 
@@ -116,7 +118,7 @@
     };
   }
 
-
+  
   const DEFAULT_USERS = [
     {
       id: "1",
@@ -367,22 +369,26 @@
       return { ok: true, user: sanitizeUser(newUserDoc) };
     },
 
-    async deleteUser(id) {
+    async deleteUser(username) {
       await this.init();
-      const localUsers = getLocalUsers();
-      const user = localUsers.find(u => String(u.id) === String(id));
-      if (!user) return;
+      if (!username) return;
+      const clean = String(username).toLowerCase().trim();
 
-      if (user.role === 'adm') {
+      // Verifica papel do usuário em ambas as fontes antes de remover
+      const userDoc = await this._getUserDoc(clean);
+      if (!userDoc) {
+        throw new Error("Usuário não encontrado.");
+      }
+      if (userDoc.role === 'adm') {
         throw new Error("Contas de administrador não podem ser removidas.");
       }
 
-      const clean = user.username.toLowerCase();
-
-      // Remove do local
-      const updated = localUsers.filter(u => String(u.id) !== String(id));
+      // Remove do armazenamento local (por username)
+      const localUsers = getLocalUsers();
+      const updated = localUsers.filter(u => String(u.username).toLowerCase() !== clean);
       setLocalUsers(updated);
 
+      // Remove notas locais
       const localNotes = getLocalNotes();
       delete localNotes[clean];
       setLocalNotes(localNotes);
@@ -391,8 +397,14 @@
       if (firestoreDb) {
         try {
           await firestoreDb.collection(USERS_COL).doc(clean).delete();
+        } catch (e) {
+          console.warn("Aviso ao remover usuário do Firestore:", e.message);
+        }
+        try {
           await firestoreDb.collection(NOTES_COL).doc(clean).delete();
-        } catch (e) {}
+        } catch (e) {
+          console.warn("Aviso ao remover notas do Firestore:", e.message);
+        }
       }
     },
 

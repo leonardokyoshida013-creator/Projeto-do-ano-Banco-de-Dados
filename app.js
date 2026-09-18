@@ -525,7 +525,7 @@ function renderFilteredTable(query = '') {
     }
     if (canDelete) {
       const btnDel = tr.querySelector('.btn-delete');
-      if (btnDel) btnDel.addEventListener('click', () => deleteUser(u.id));
+      if (btnDel) btnDel.addEventListener('click', () => deleteUser(u.username));
     }
     return tr;
   }
@@ -567,14 +567,14 @@ function renderFilteredTable(query = '') {
   }
 }
 
-async function deleteUser(id) {
+async function deleteUser(username) {
   if (!currentUser || currentUser.role !== 'adm') {
     alert('Ação não autorizada. Apenas administradores podem remover contas.');
     return;
   }
   if (!confirm('Tem certeza que deseja remover este usuário? Esta ação é irreversível.')) return;
   try {
-    await DB.deleteUser(id);
+    await DB.deleteUser(username);
     await renderTable();
   } catch (err) {
     alert(err.message || 'Erro ao remover usuário.');
