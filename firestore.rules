@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funções utilitárias de validação de dados
+    function isValidUsername(username) {
+      return username is string 
+        && username.size() >= 3 
+        && username.size() <= 30 
+        && username.matches('^[a-zA-Z0-9._-]+$');
+    }
+
+    function isValidRole(role) {
+      return role == 'user' || role == 'adm';
+    }
+
+    function isValidUserDoc(data) {
+      return data.keys().hasAll(['id', 'name', 'username', 'role', 'createdAt'])
+        && data.id is string
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.username is string && isValidUsername(data.username)
+        && isValidRole(data.role)
+        && (
+          // Segurança de credenciais: exige hash PBKDF2 e salt (ou suporta migração temporária)
+          (data.keys().hasAll(['passwordHash', 'salt']) && data.passwordHash is string && data.salt is string)
+          || (data.keys().hasAll(['password']) && data.password is string)
+        );
+    }
+
+    function isValidNoteDoc(data) {
+      return data.keys().hasAll(['text'])
+        && data.text is string
+        && data.text.size() <= 50000;
+    }
+
+    // ============================================================
+    // Coleção: usuarios
+    // ============================================================
+    match /usuarios/{username} {
+      // Leitura permitida para listagem e consulta
+      allow read: if true;
+
+      // Criação de novos usuários com validação rigorosa de esquema
+      allow create: if isValidUsername(username) 
+                    && request.resource.data.username == username
+                    && isValidUserDoc(request.resource.data);
+
+      // Atualização permitida apenas com dados válidos (ex: migração para PBKDF2)
+      allow update: if isValidUsername(username) 
+                    && request.resource.data.username == username
+                    && isValidUserDoc(request.resource.data);
+
+      // Exclusão protegida: proíbe a remoção arbitrária de contas de administradores
+      allow delete: if resource.data.role != 'adm';
+    }
+
+    // ============================================================
+    // Coleção: notas
+    // ============================================================
+    match /notas/{username} {
+      allow read: if true;
+
+      allow create, update: if isValidUsername(username) 
+                            && isValidNoteDoc(request.resource.data);
+
+      allow delete: if true;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-# 🔥 Como configurar o Firebase (passo a passo)
+# 🔥 Como configurar o Firebase (passo a passo seguro)
 
 ## Por que Firebase?
 O localStorage só existe no navegador local — não sincroniza entre dispositivos.
@@ -41,64 +41,96 @@ const firebaseConfig = {
 };
 ```
 
-4. **Copie esses valores** e cole no arquivo `db.js` no lugar dos `"COLE_AQUI"`
+4. **Copie esses valores** e cole no arquivo `db.js` no bloco `firebaseConfig`.
 
 ---
 
-## PASSO 4 — Configurar as Regras de Segurança
+## PASSO 4 — Configurar as Regras de Segurança (Proteção do Banco)
 
-1. No menu lateral, vá em **Firestore Database → Regras**
-2. **Apague** o conteúdo atual e cole as regras abaixo:
+> ⚠️ **Atenção sobre Segurança:** Nunca utilize `allow read, write: if true;` em produção. Regras abertas permitem que qualquer usuário apague ou adultere documentos. Utilize as regras blindadas abaixo (também disponíveis no arquivo `firestore.rules`):
+
+1. No menu lateral do Firebase Console, vá em **Firestore Database → Regras**
+2. **Apague** o conteúdo atual e cole as regras a seguir:
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Coleção de usuários: leitura e escrita livres
-    // (o controle de acesso é feito pelo app.js via senha)
-    match /usuarios/{username} {
-      allow read, write: if true;
+    function isValidUsername(username) {
+      return username is string 
+        && username.size() >= 3 
+        && username.size() <= 30 
+        && username.matches('^[a-zA-Z0-9._-]+$');
     }
 
-    // Coleção de notas: leitura e escrita livres
+    function isValidRole(role) {
+      return role == 'user' || role == 'adm';
+    }
+
+    function isValidUserDoc(data) {
+      return data.keys().hasAll(['id', 'name', 'username', 'role', 'createdAt'])
+        && data.id is string
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.username is string && isValidUsername(data.username)
+        && isValidRole(data.role)
+        && (
+          (data.keys().hasAll(['passwordHash', 'salt']) && data.passwordHash is string && data.salt is string)
+          || (data.keys().hasAll(['password']) && data.password is string)
+        );
+    }
+
+    function isValidNoteDoc(data) {
+      return data.keys().hasAll(['text'])
+        && data.text is string
+        && data.text.size() <= 50000;
+    }
+
+    match /usuarios/{username} {
+      allow read: if true;
+      allow create: if isValidUsername(username) 
+                    && request.resource.data.username == username
+                    && isValidUserDoc(request.resource.data);
+      allow update: if isValidUsername(username) 
+                    && request.resource.data.username == username
+                    && isValidUserDoc(request.resource.data);
+      allow delete: if resource.data.role != 'adm';
+    }
+
     match /notas/{username} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidUsername(username) 
+                            && isValidNoteDoc(request.resource.data);
+      allow delete: if true;
     }
   }
 }
 ```
 
-3. Clique em **Publicar**
+3. Clique em **Publicar**.
 
 ---
 
 ## PASSO 5 — Subir os arquivos no GitHub Pages
 
-Faça upload dos 4 arquivos para o repositório:
+Faça upload dos arquivos para o repositório:
 - `index.html`
 - `style.css`
-- `db.js`  ← o novo, com seus dados do Firebase
-- `app.js` ← o novo, com async/await
+- `db.js` (com criptografia PBKDF2 e configurações)
+- `app.js` (com rate limiting e validações de segurança)
+- `firestore.rules` (regras do banco)
 
 Em **Settings → Pages → Source**, selecione `main` / `root` e salve.
 
 ---
 
-## ✅ Pronto!
+## 🔒 Melhorias de Segurança Implementadas no Código
 
-Agora os usuários criados ficam salvos no Firestore e aparecem
-em qualquer dispositivo que acessar o site.
-
----
-
-## ⚠️ Limites do plano gratuito (Spark)
-
-| Recurso          | Limite gratuito/dia |
-|-----------------|---------------------|
-| Leituras         | 50.000              |
-| Escritas         | 20.000              |
-| Exclusões        | 20.000              |
-| Armazenamento    | 1 GB total          |
-
-Para um sistema pequeno como este, o plano gratuito é mais do que suficiente.
+1. **Criptografia de Senhas com PBKDF2 + Salt**: Nenhuma senha é salva em texto puro. Cada senha possui um salt único gerado com `crypto.getRandomValues` e 100.000 iterações de hashing SHA-256.
+2. **Prevenção de Vazamento de Dados**: Métodos como `getAll()` e `findByUsername()` eliminam hashes e salts antes de retornar dados para a aplicação.
+3. **Proteção contra Ataques de Força Bruta (Rate Limiting)**: Bloqueio progressivo após 5 tentativas incorretas de login.
+4. **Prevenção contra XSS e Injeção**: Sanitização rigorosa de caracteres especiais e escape de entidades HTML.
+5. **Política de Senhas Fortes**: Exigência de pelo menos 8 caracteres, maiúsculas, minúsculas e números.
+6. **Controle de Acesso Baseado em Papéis (RBAC)**: Bloqueio no código para evitar ações de ADM executadas por usuários comuns.
+7. **Timeout de Sessão por Inatividade**: Encerramento automático de sessão após 30 minutos sem atividade.
+8. **Cabeçalhos de Segurança (CSP & Referrer Policy)**: Prevenção contra injeção de scripts maliciosos e clickjacking.

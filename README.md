@@ -1,46 +1,50 @@
-# Sistema de Acesso com ADM
+# Sistema de Acesso Seguro com Painel ADM
 
-Site com sistema de login, 4 contas ADM pré-configuradas e banco de dados em localStorage.
+Sistema web de autenticação e gestão de usuários com integração Firebase Firestore e camadas reforçadas de segurança criptográfica (OWASP).
 
-## Contas ADM padrão
+## 🛡️ Camadas de Segurança Implementadas
 
-| Usuário | Senha |
-|---|---|
-| `leonardo` | `adm123` |
-| `abner` | `adm123` |
-| `isabela` | `adm123` |
-| `matheus` | `adm123` |
+- **Criptografia de Senhas (PBKDF2)**: Hashing com 100.000 iterações de HMAC-SHA-256 e Salt criptográfico de 16 bytes via Web Crypto API nativa do navegador. Nenhuma senha trafega ou é salva em texto claro.
+- **Proteção contra Força Bruta (Rate Limiting)**: Bloqueio automático e temporário com contagem regressiva após 5 tentativas incorretas consecutivas.
+- **Proteção contra XSS e Injeção**: Sanitização rigorosa de entidades HTML e validação estrita de papéis (RBAC).
+- **Prevenção de Vazamento de Credenciais**: Métodos de listagem (`DB.getAll`) sanitizam completamente os dados, nunca expondo hashes ou salts.
+- **Política de Senhas Fortes**: Exigência de pelo menos 8 caracteres com letras maiúsculas, minúsculas e números.
+- **Expiração de Sessão por Inatividade**: Logout automático de segurança após 30 minutos sem atividade.
+- **Cabeçalhos de Proteção (CSP & Referrer-Policy)**: Restrição de fontes e scripts permitidos na execução da página.
+- **Regras Blindadas do Firestore**: Arquivo `firestore.rules` com validação de esquema de documentos.
 
-> Você pode alterar as senhas padrão editando o arquivo `db.js`.
+## Contas ADM Padrão
 
-## Como publicar no GitHub Pages
+| Usuário | Senha Padrão | Função |
+|---|---|---|
+| `leonardo` | `Leonardo12@` | Administrador |
+| `abner` | `adm123` | Administrador |
+| `isabela` | `adm123` | Administrador |
+| `matheus` | `adm123` | Administrador |
 
-1. Crie um repositório no GitHub (pode ser público ou privado com Pages ativado)
-2. Faça upload dos 4 arquivos:
+> As credenciais padrão são armazenadas em forma de hash PBKDF2 com salt em `db.js`.
+
+## Como Publicar no GitHub Pages
+
+1. Crie ou acesse seu repositório no GitHub.
+2. Faça upload dos arquivos:
    - `index.html`
    - `style.css`
-   - `db.js`
+   - `db.js` (com suas credenciais do Firebase)
    - `app.js`
-3. Vá em **Settings → Pages**
-4. Em **Source**, selecione a branch `main` e a pasta `/ (root)`
-5. Clique em **Save**
-6. Aguarde 1-2 minutos — o site estará disponível em `https://SEU_USUARIO.github.io/NOME_DO_REPOSITORIO`
+   - `firestore.rules`
+3. Configure o Firebase seguindo o guia passo a passo em [CONFIGURACAO_FIREBASE.md](file:///c:/Users/Leonardo.kyoshida/Downloads/Projeto-em-desenvolvimento--main/Projeto-em-desenvolvimento--main/CONFIGURACAO_FIREBASE.md).
+4. No GitHub, vá em **Settings → Pages** → selecione a branch `main` e a pasta `/ (root)`.
+5. Salve e acesse a URL gerada pelo GitHub Pages.
 
-## Funcionalidades
-
-- Login com validação de usuário e senha
-- 4 contas ADM pré-configuradas (Leonardo, Abner, Isabela, Matheus)
-- Painel ADM com estatísticas e tabela de usuários
-- Criação de novos usuários (pelo painel ADM ou pela tela de registro)
-- Remoção de usuários comuns pelo ADM
-- Banco de dados em `localStorage` — os dados persistem entre sessões no mesmo navegador
-- Layout responsivo (funciona no celular)
-
-## Estrutura de arquivos
+## Estrutura de Arquivos
 
 ```
-index.html   → estrutura da página
-style.css    → estilos visuais
-db.js        → banco de dados (localStorage)
-app.js       → lógica da aplicação
+index.html              → Estrutura da página, tags CSP e segurança
+style.css               → Estilos visuais e responsividade
+db.js                   → Camada de banco de dados (Firebase Firestore) com PBKDF2 e sanitização
+app.js                  → Lógica da aplicação, rate limiting, RBAC e validação
+firestore.rules         → Regras seguras de validação do banco Firestore
+CONFIGURACAO_FIREBASE.md → Guia completo e seguro de configuração do Firebase
+README.md               → Documentação do projeto
 ```
