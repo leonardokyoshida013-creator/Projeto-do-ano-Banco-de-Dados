@@ -202,7 +202,7 @@
       this._initialized = true;
 
       // Garante que o armazenamento local tem os ADMs
-      const localUsers = getLocalUsers();
+      let localUsers = getLocalUsers();
       let updatedLocal = false;
       for (const defU of DEFAULT_USERS) {
         if (!localUsers.some(u => u.username === defU.username)) {
@@ -210,10 +210,41 @@
           updatedLocal = true;
         }
       }
+
+      // ── Limpeza: remove conta @snapv duplicada ──
+      const beforeLen = localUsers.length;
+      localUsers = localUsers.filter(u => String(u.username).toLowerCase() !== 'snapv');
+      if (localUsers.length !== beforeLen) updatedLocal = true;
+
+      // ── Limpeza: remove usernames duplicados (mantém o primeiro de cada) ──
+      const seen = new Set();
+      const deduped = [];
+      for (const u of localUsers) {
+        const key = String(u.username).toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(u);
+        }
+      }
+      if (deduped.length !== localUsers.length) {
+        localUsers = deduped;
+        updatedLocal = true;
+      }
+
       if (updatedLocal) setLocalUsers(localUsers);
 
       // Sincroniza com o Firestore se disponível
       if (firestoreDb) {
+        try {
+          // Remove @snapv do Firestore se existir
+          const snapvRef = firestoreDb.collection(USERS_COL).doc('snapv');
+          const snapvSnap = await snapvRef.get();
+          if (snapvSnap.exists) {
+            await snapvRef.delete();
+            console.log("Conta @snapv removida do Firestore.");
+          }
+        } catch (e) {}
+
         try {
           for (const u of DEFAULT_USERS) {
             const docRef = firestoreDb.collection(USERS_COL).doc(u.username);
@@ -248,17 +279,30 @@
     async getAll() {
       await this.init();
 
+      // Função auxiliar para deduplicar por username
+      function deduplicate(users) {
+        const seen = new Set();
+        return users.filter(u => {
+          if (!u || !u.username) return false;
+          const key = u.username.toLowerCase();
+          if (key === 'snapv') return false; // conta removida
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
       if (firestoreDb) {
         try {
           const snap = await firestoreDb.collection(USERS_COL).get();
           if (snap.docs && snap.docs.length > 0) {
-            return snap.docs.map(d => sanitizeUser(d.data())).filter(Boolean);
+            return deduplicate(snap.docs.map(d => sanitizeUser(d.data())));
           }
         } catch (e) {}
       }
 
       const localUsers = getLocalUsers();
-      return localUsers.map(sanitizeUser).filter(Boolean);
+      return deduplicate(localUsers.map(sanitizeUser));
     },
 
     async findByUsername(username) {
