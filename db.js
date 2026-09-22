@@ -14,7 +14,11 @@
 
   const USERS_COL = "usuarios";
   const NOTES_COL = "notas";
-  const PBKDF2_ITERATIONS = 100000;
+  // Usuários antigos gravam a iteração no próprio documento; este valor
+  // só vale para contas novas (OWASP recomenda >= 310k para PBKDF2-SHA256).
+  const PBKDF2_ITERATIONS = 310000;
+  const LEGACY_PBKDF2_ITERATIONS = 100000;
+  const MAX_PASSWORD_LENGTH = 128;
   const LOCAL_STORAGE_USERS_KEY = "banco_seguro_db_users";
   const LOCAL_STORAGE_NOTES_KEY = "banco_seguro_db_notes";
 
@@ -58,44 +62,42 @@
   }
 
   async function hashPassword(password, saltHex, iterations = PBKDF2_ITERATIONS) {
-    if (window.crypto && window.crypto.subtle) {
-      try {
-        const enc = new TextEncoder();
-        const keyMaterial = await crypto.subtle.importKey(
-          "raw",
-          enc.encode(password),
-          { name: "PBKDF2" },
-          false,
-          ["deriveBits"]
-        );
-        const salt = hexToBytes(saltHex);
-        const derivedBits = await crypto.subtle.deriveBits(
-          {
-            name: "PBKDF2",
-            salt: salt,
-            iterations: iterations,
-            hash: "SHA-256"
-          },
-          keyMaterial,
-          256
-        );
-        return bufferToHex(derivedBits);
-      } catch (e) {
-        console.warn("SubtleCrypto PBKDF2 falhou, utilizando fallback interno:", e);
-      }
+    // Web Crypto é obrigatório: um "fallback" fraco aqui quebraria toda a
+    // segurança do armazenamento. Em contextos inseguros (HTTP puro),
+    // crypto.subtle não existe — recusamos em vez de enfraquecer o hash.
+    if (!(window.crypto && window.crypto.subtle)) {
+      const err = new Error(
+        "Web Crypto indisponível. Abra o site via https:// ou http://localhost."
+      );
+      err.code = "WEBCRYPTO_UNAVAILABLE";
+      throw err;
     }
-    // Fallback criptográfico determinístico
-    return simpleHash(password + ':' + saltHex);
+
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+    const salt = hexToBytes(saltHex);
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: salt,
+        iterations: Math.max(1, iterations | 0),
+        hash: "SHA-256"
+      },
+      keyMaterial,
+      256
+    );
+    return bufferToHex(derivedBits);
   }
 
-  function simpleHash(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash |= 0;
-    }
-    return 'fallback_' + Math.abs(hash).toString(16).padStart(32, '0');
-  }
+  // Salt fixo usado apenas para igualar o tempo de resposta quando o
+  // usuário não existe (previne enumeração de contas por timing).
+  const DUMMY_SALT = "00112233445566778899aabbccddeeff";
 
   function constantTimeEquals(a, b) {
     if (typeof a !== 'string' || typeof b !== 'string') return false;
@@ -126,7 +128,7 @@
       username: "leonardo",
       passwordHash: "36ba688431ced3eb254af303d7dd6dbf2ffbc0b461de4ddf12fa3011f5a5a84c",
       salt: "fcbbc14cb7e185ffb3203f65df4636c5",
-      iterations: PBKDF2_ITERATIONS,
+      iterations: LEGACY_PBKDF2_ITERATIONS,
       role: "adm",
       createdAt: "27/05/2025"
     },
@@ -136,7 +138,7 @@
       username: "abner",
       passwordHash: "5f30cf2c7ff1ec1dc0bab077a4eaf1a41c8ae1ab3692afd41519059b90cb1d92",
       salt: "ff259a1398888c62e7c1e42f354fe35c",
-      iterations: PBKDF2_ITERATIONS,
+      iterations: LEGACY_PBKDF2_ITERATIONS,
       role: "adm",
       createdAt: "27/05/2025"
     },
@@ -146,7 +148,7 @@
       username: "isabela",
       passwordHash: "fa2fc12be4dcbaa360fed02509c37b39b7742a1997080e097d6cb1c1f031d9b8",
       salt: "3c8da68864451b00bcfec362d35ac56d",
-      iterations: PBKDF2_ITERATIONS,
+      iterations: LEGACY_PBKDF2_ITERATIONS,
       role: "adm",
       createdAt: "27/05/2025"
     },
@@ -156,7 +158,7 @@
       username: "matheus",
       passwordHash: "2f700e5a6211a3dd47f451c23045bb0dbb5b82e97e3089cb53e395cbf583d966",
       salt: "01d5cd668a1c155da602c2ac1ec2b39e",
-      iterations: PBKDF2_ITERATIONS,
+      iterations: LEGACY_PBKDF2_ITERATIONS,
       role: "adm",
       createdAt: "27/05/2025"
     }
@@ -164,10 +166,13 @@
 
   // ---------- Gerenciamento de Armazenamento Local Seguro ----------
 
-  function getLocalUsers() {
+    function getLocalUsers() {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch {}
     return [...DEFAULT_USERS];
   }
@@ -181,7 +186,10 @@
   function getLocalNotes() {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_NOTES_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+      }
     } catch {}
     return {};
   }
@@ -312,32 +320,56 @@
 
     async authenticate(username, password) {
       if (!username || !password) return null;
+      if (typeof password !== 'string' || password.length > MAX_PASSWORD_LENGTH) return null;
       await this.init();
 
       const clean = String(username).toLowerCase().trim();
       const userDoc = await this._getUserDoc(clean);
-      if (!userDoc) return null;
 
-      // Autenticação com PBKDF2
+      // Timing igualitário: usuário inexistente ainda executa um PBKDF2
+      // completo, evitando descobrir contas pela velocidade da resposta.
+      if (!userDoc) {
+        try {
+          await hashPassword(password, DUMMY_SALT, LEGACY_PBKDF2_ITERATIONS);
+        } catch (e) {
+          if (e && e.code === 'WEBCRYPTO_UNAVAILABLE') throw e;
+        }
+        return null;
+      }
+
+      // Autenticação com PBKDF2 (iteração gravada no documento)
       if (userDoc.passwordHash && userDoc.salt) {
-        const hash = await hashPassword(password, userDoc.salt, userDoc.iterations || PBKDF2_ITERATIONS);
+        const hash = await hashPassword(
+          password,
+          userDoc.salt,
+          userDoc.iterations || LEGACY_PBKDF2_ITERATIONS
+        );
         if (constantTimeEquals(hash, userDoc.passwordHash)) {
           return sanitizeUser(userDoc);
         }
       }
 
-      // Suporte a migração de senha em texto claro
-      if (userDoc.password && constantTimeEquals(password, userDoc.password)) {
+      // Suporte a migração de senha em texto claro (docs legados)
+      if (
+        typeof userDoc.password === 'string' &&
+        userDoc.password.length <= MAX_PASSWORD_LENGTH &&
+        constantTimeEquals(password, userDoc.password)
+      ) {
         const salt = generateSalt();
-        const hash = await hashPassword(password, salt);
-        const upgraded = { ...userDoc, passwordHash: hash, salt, iterations: PBKDF2_ITERATIONS };
+        const hash = await hashPassword(password, salt, PBKDF2_ITERATIONS);
+        const upgraded = {
+          ...userDoc,
+          passwordHash: hash,
+          salt,
+          iterations: PBKDF2_ITERATIONS
+        };
         delete upgraded.password;
 
         // Atualiza local
         const local = getLocalUsers().map(u => u.username === clean ? upgraded : u);
         setLocalUsers(local);
 
-        // Atualiza Firestore
+        // Atualiza Firestore (pode ser recusado pelas regras; login segue válido)
         if (firestoreDb) {
           try {
             await firestoreDb.collection(USERS_COL).doc(clean).set(upgraded);
@@ -365,6 +397,9 @@
 
       if (typeof password !== 'string' || password.length < 8) {
         return { ok: false, error: "A senha deve ter no mínimo 8 caracteres." };
+      }
+      if (password.length > MAX_PASSWORD_LENGTH) {
+        return { ok: false, error: `A senha deve ter no máximo ${MAX_PASSWORD_LENGTH} caracteres.` };
       }
       if (!/[A-Z]/.test(password)) {
         return { ok: false, error: "A senha deve conter ao menos uma letra maiúscula." };

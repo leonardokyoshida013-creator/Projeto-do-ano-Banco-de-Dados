@@ -34,7 +34,31 @@ function sanitizeRole(role) {
 
 function initials(name) {
   if (!name) return '??';
-  return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '??';
+  return parts.map(w => w[0]).slice(0, 2).join('').toUpperCase();
+}
+
+// ---------- Toast (substitui alert() bloqueantes) ----------
+
+let toastTimerId = null;
+
+function showToast(message, type = 'info') {
+  let el = document.getElementById('appToast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'appToast';
+    el.className = 'toast';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.className = `toast toast-${type} toast-show`;
+  if (toastTimerId) clearTimeout(toastTimerId);
+  toastTimerId = setTimeout(() => {
+    el.className = 'toast';
+  }, 4500);
 }
 
 function showEl(id)  { const el = document.getElementById(id); if (el) el.style.display = 'block'; }
@@ -109,23 +133,23 @@ function updatePasswordStrength(password) {
     label = 'Segurança';
   } else if (score <= 1) {
     width = '20%';
-    color = '#ef4444';
+    color = '#f43f5e';
     label = 'Muito Fraca';
   } else if (score === 2) {
     width = '45%';
-    color = '#f97316';
+    color = '#fb923c';
     label = 'Fraca';
   } else if (score === 3) {
     width = '70%';
-    color = '#eab308';
+    color = '#fbbf24';
     label = 'Média';
   } else if (score === 4) {
     width = '90%';
-    color = '#3b82f6';
+    color = '#a855f7';
     label = 'Forte';
   } else {
     width = '100%';
-    color = '#10b981';
+    color = '#34d399';
     label = 'Excelente';
   }
 
@@ -172,7 +196,14 @@ function getThrottleState() {
   try {
     const raw = localStorage.getItem(AUTH_THROTTLE_KEY);
     if (!raw) return { attempts: 0, lockedUntil: 0 };
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return { attempts: 0, lockedUntil: 0 };
+    const attempts = Number.parseInt(parsed.attempts, 10);
+    const lockedUntil = Number.parseInt(parsed.lockedUntil, 10);
+    return {
+      attempts: Number.isFinite(attempts) && attempts > 0 ? Math.min(attempts, 999) : 0,
+      lockedUntil: Number.isFinite(lockedUntil) && lockedUntil > 0 ? lockedUntil : 0
+    };
   } catch {
     return { attempts: 0, lockedUntil: 0 };
   }
@@ -229,6 +260,68 @@ function checkLoginLockout() {
   return false;
 }
 
+// ---------- Persistência de Sessão (sobrevive a F5) ----------
+
+const SESSION_STORAGE_KEY = 'banco_seguro_session';
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+
+function saveSession(user) {
+  if (!user || !user.username) return;
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+      username: String(user.username).toLowerCase(),
+      exp: Date.now() + SESSION_MAX_AGE_MS
+    }));
+  } catch (_) { /* storage indisponível */ }
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch (_) { /* storage indisponível */ }
+}
+
+function readSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.username !== 'string' || !parsed.username) return null;
+    const exp = Number(parsed.exp);
+    if (!Number.isFinite(exp) || exp < Date.now()) {
+      clearSession();
+      return null;
+    }
+    return parsed;
+  } catch {
+    clearSession();
+    return null;
+  }
+}
+
+async function restoreSession() {
+  const session = readSession();
+  if (!session) return false;
+
+  try {
+    const user = await DB.findByUsername(session.username);
+    if (!user || !user.username) {
+      clearSession();
+      return false;
+    }
+
+    currentUser = user;
+    resetInactivityTimer();
+    await renderDashboard();
+    return true;
+  } catch (err) {
+    console.error('Falha ao restaurar sessão:', err);
+    clearSession();
+    currentUser = null;
+    return false;
+  }
+}
+
 // ---------- Tempo Limite de Sessão por Inatividade (30 min) ----------
 
 const INACTIVITY_LIMIT_MS = 30 * 60 * 1000;
@@ -239,7 +332,7 @@ function resetInactivityTimer() {
   if (inactivityTimeoutId) clearTimeout(inactivityTimeoutId);
   inactivityTimeoutId = setTimeout(() => {
     if (currentUser) {
-      alert('Sua sessão expirou devido a 30 minutos de inatividade por motivos de segurança.');
+      showToast('Sua sessão expirou após 30 minutos de inatividade.', 'warn');
       doLogout();
     }
   }, INACTIVITY_LIMIT_MS);
@@ -253,7 +346,14 @@ function resetInactivityTimer() {
 
 // ---------- Navegação entre telas ----------
 
+function closeAllModals() {
+  closeNoteModal();
+  closeNotesModal();
+  closeModal();
+}
+
 function showLanding() {
+  closeAllModals();
   showEl('landingScreen');
   hideEl('loginScreen');
   hideEl('registerScreen');
@@ -261,6 +361,7 @@ function showLanding() {
 }
 
 function showLogin() {
+  closeAllModals();
   hideEl('landingScreen');
   flexEl('loginScreen');
   hideEl('registerScreen');
@@ -271,6 +372,7 @@ function showLogin() {
 }
 
 function showRegister() {
+  closeAllModals();
   hideEl('landingScreen');
   hideEl('loginScreen');
   flexEl('registerScreen');
@@ -322,6 +424,7 @@ async function doLogin() {
     // Sucesso na autenticação
     resetThrottleState();
     currentUser = user;
+    saveSession(user);
     btn.disabled = false;
     btn.innerHTML = '<i class="ti ti-login"></i> Entrar';
 
@@ -331,11 +434,15 @@ async function doLogin() {
     console.error("Erro na autenticação:", err);
     btn.disabled = false;
     btn.innerHTML = '<i class="ti ti-login"></i> Entrar';
-    showAlert('loginError', 'Falha ao autenticar. Tente novamente mais tarde.');
+    if (err && err.code === 'WEBCRYPTO_UNAVAILABLE') {
+      showAlert('loginError', err.message);
+    } else {
+      showAlert('loginError', 'Falha ao autenticar. Tente novamente mais tarde.');
+    }
   }
 }
 
-// Submeter login com a tecla Enter
+// Submeter login com a tecla Enter + restaurar sessão salva
 document.addEventListener('DOMContentLoaded', () => {
   const loginPass = document.getElementById('loginPass');
   const loginUser = document.getElementById('loginUser');
@@ -352,6 +459,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
   checkLoginLockout();
+  restoreSession();
 });
 
 // ---------- Registro de Conta ----------
@@ -407,7 +515,11 @@ async function doRegister() {
     console.error("Erro no cadastro:", err);
     btn.disabled = false;
     btn.innerHTML = '<i class="ti ti-user-plus"></i> Criar conta segura';
-    showAlert('regError', 'Erro inesperado ao registrar usuário.');
+    if (err && err.code === 'WEBCRYPTO_UNAVAILABLE') {
+      showAlert('regError', err.message);
+    } else {
+      showAlert('regError', 'Erro inesperado ao registrar usuário.');
+    }
   }
 }
 
@@ -436,14 +548,37 @@ async function renderDashboard() {
   badge.textContent = safeRole === 'adm' ? 'ADM' : 'Usuário';
   badge.className   = 'badge ' + safeRole;
 
+  const pageTitle = document.getElementById('dashPageTitle');
+  const pageSub   = document.getElementById('dashPageSub');
+  const menuAdm   = document.getElementById('menuAdmItems');
+  const menuUser  = document.getElementById('menuUserItems');
+
   if (safeRole === 'adm') {
+    if (pageTitle) pageTitle.textContent = 'Visão geral';
+    if (pageSub)   pageSub.textContent   = 'Gerenciamento de contas, notas e estatísticas';
+    if (menuAdm)   menuAdm.style.display  = 'block';
+    if (menuUser)  menuUser.style.display = 'none';
     showEl('admPanel');
     hideEl('userPanel');
     await renderTable();
   } else {
+    if (pageTitle) pageTitle.textContent = 'Minhas notas';
+    if (pageSub)   pageSub.textContent   = 'Suas anotações pessoais e seguras';
+    if (menuAdm)   menuAdm.style.display  = 'none';
+    if (menuUser)  menuUser.style.display = 'block';
     hideEl('admPanel');
     showEl('userPanel');
     await loadNotes();
+  }
+}
+
+function dashScroll(sectionId, btn) {
+  const section = document.getElementById(sectionId);
+  if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (btn && btn.parentElement) {
+    const siblings = btn.parentElement.querySelectorAll('.dash-menu-item');
+    siblings.forEach(item => item.classList.remove('active'));
+    btn.classList.add('active');
   }
 }
 
@@ -500,7 +635,7 @@ function renderFilteredTable(query = '') {
     tr.innerHTML = `
       <td>
         <div class="cell-name">
-          <div class="avatar-sm ${role}">${initials(u.name)}</div>
+          <div class="avatar-sm ${role}">${escapeHtml(initials(u.name))}</div>
           <span>${safeName}</span>
         </div>
       </td>
@@ -534,7 +669,7 @@ function renderFilteredTable(query = '') {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td colspan="6" style="
-        background: rgba(15, 23, 42, 0.7);
+        background: #f8fafc;
         padding: 8px 18px;
         font-size: 11px;
         font-weight: 700;
@@ -569,7 +704,11 @@ function renderFilteredTable(query = '') {
 
 async function deleteUser(username) {
   if (!currentUser || currentUser.role !== 'adm') {
-    alert('Ação não autorizada. Apenas administradores podem remover contas.');
+    showToast('Ação não autorizada. Apenas administradores podem remover contas.', 'error');
+    return;
+  }
+  if (username === currentUser.username) {
+    showToast('Você não pode remover a própria conta.', 'warn');
     return;
   }
   if (!confirm('Tem certeza que deseja remover este usuário? Esta ação é irreversível.')) return;
@@ -577,7 +716,7 @@ async function deleteUser(username) {
     await DB.deleteUser(username);
     await renderTable();
   } catch (err) {
-    alert(err.message || 'Erro ao remover usuário.');
+    showToast(err.message || 'Erro ao remover usuário.', 'error');
   }
 }
 
@@ -585,7 +724,7 @@ async function deleteUser(username) {
 
 async function viewNotes(username, name) {
   if (!currentUser || currentUser.role !== 'adm') {
-    alert('Acesso restrito a administradores.');
+    showToast('Acesso restrito a administradores.', 'error');
     return;
   }
 
@@ -608,10 +747,10 @@ async function viewNotes(username, name) {
   notes.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   notes.forEach(note => {
     const card = document.createElement('div');
-    card.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.15rem;display:flex;flex-direction:column;gap:6px';
+    card.style.cssText = 'background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.15rem;display:flex;flex-direction:column;gap:6px';
     card.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span style="font-size:11px;font-weight:600;color:var(--accent-primary);font-family:'DM Mono',monospace;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);border-radius:6px;padding:2px 8px">
+        <span style="font-size:11px;font-weight:600;color:var(--accent-primary);font-family:'DM Mono',monospace;background:#eef2ff;border:1px solid #e0e7ff;border-radius:8px;padding:2px 8px">
           <i class="ti ti-calendar" style="font-size:11px"></i> ${escapeHtml(formatDate(note.date))}
         </span>
         ${note.desc ? `<span style="font-size:12px;color:var(--text-muted);font-weight:500">${escapeHtml(note.desc)}</span>` : ''}
@@ -636,7 +775,7 @@ function handleNotesOverlayClick(e) {
 
 function openModal() {
   if (!currentUser || currentUser.role !== 'adm') {
-    alert('Apenas administradores podem criar usuários pelo painel.');
+    showToast('Apenas administradores podem criar usuários pelo painel.', 'error');
     return;
   }
   flexEl('modalOverlay');
@@ -701,7 +840,7 @@ async function createUser() {
       return;
     }
 
-    showAlert('modalSuccess', `Usuário "${escapeHtml(name)}" criado com sucesso!`);
+    showAlert('modalSuccess', `Usuário "${name}" criado com sucesso!`);
     clearInputs('mName', 'mUser', 'mPass');
     setTimeout(async () => {
       closeModal();
@@ -733,11 +872,11 @@ async function renderNotesList() {
   if (notes.length === 0) {
     wrap.innerHTML = `
       <div class="card" style="text-align:center;padding:3.5rem 1.5rem;color:var(--text-faint)">
-        <div style="width:64px;height:64px;border-radius:50%;background:rgba(59,130,246,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;color:var(--accent-primary);font-size:30px">
+        <div style="width:64px;height:64px;border-radius:18px;background:#eef2ff;border:1px solid #e0e7ff;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;color:var(--accent-primary);font-size:30px">
           <i class="ti ti-notes"></i>
         </div>
         <h3 style="font-size:16px;color:var(--text);margin-bottom:6px">Nenhuma nota cadastrada ainda</h3>
-        <p style="font-size:13px;color:var(--text-muted);max-width:320px;margin:0 auto 1.5rem">Suas anotações são criptografadas e sincronizadas de forma segura no Firestore.</p>
+        <p style="font-size:13px;color:var(--text-muted);max-width:320px;margin:0 auto 1.5rem">Suas anotações são sincronizadas com validação de esquema no Firestore.</p>
         <button class="btn btn-primary" onclick="openNoteModal()" style="width:auto">
           <i class="ti ti-plus"></i> Criar Primeira Nota
         </button>
@@ -755,7 +894,7 @@ async function renderNotesList() {
     card.innerHTML = `
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span style="font-size:12px;font-weight:600;color:var(--accent-primary);font-family:'DM Mono',monospace;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);border-radius:6px;padding:3px 9px">
+          <span style="font-size:12px;font-weight:600;color:var(--accent-primary);font-family:'DM Mono',monospace;background:#eef2ff;border:1px solid #e0e7ff;border-radius:8px;padding:3px 9px">
             <i class="ti ti-calendar" style="font-size:12px"></i> ${escapeHtml(formatDate(note.date))}
           </span>
           ${note.desc ? `<span style="font-size:13px;font-weight:600;color:var(--text)">${escapeHtml(note.desc)}</span>` : ''}
@@ -765,7 +904,7 @@ async function renderNotesList() {
           <button class="btn-icon btn-del-note" title="Excluir nota" style="color:var(--red-text)"><i class="ti ti-trash"></i></button>
         </div>
       </div>
-      <p style="font-size:14px;color:#cbd5e1;line-height:1.7;white-space:pre-wrap;margin-top:2px">${escapeHtml(note.content)}</p>
+      <p style="font-size:14px;color:var(--text);line-height:1.7;white-space:pre-wrap;margin-top:2px">${escapeHtml(note.content)}</p>
     `;
 
     const btnEdit = card.querySelector('.btn-edit-note');
@@ -792,7 +931,8 @@ function formatDate(iso) {
   if (parts.length === 3) {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
   }
-  return escapeHtml(iso);
+  // Não retorna HTML: quem chama aplica escapeHtml ao inserir no DOM.
+  return String(iso).replace(/[^0-9/\-]/g, '') || '—';
 }
 
 function openNoteModal(id = null) {
@@ -888,7 +1028,7 @@ async function saveNoteModal() {
   } catch (err) {
     btn.disabled = false;
     btn.innerHTML = '<i class="ti ti-device-floppy"></i> Salvar nota';
-    showAlert('noteModalError', 'Erro ao salvar nota.');
+    showToast('Erro ao salvar nota.', 'error');
   }
 }
 
@@ -902,7 +1042,7 @@ async function deleteNote(id) {
     await DB.saveNotes(currentUser.username, JSON.stringify(notes));
     await renderNotesList();
   } catch (err) {
-    alert('Erro ao excluir nota.');
+    showToast('Erro ao excluir nota.', 'error');
   }
 }
 
@@ -913,9 +1053,28 @@ function doLogout() {
     clearTimeout(inactivityTimeoutId);
     inactivityTimeoutId = null;
   }
+  closeAllModals();
   currentUser = null;
+  cachedAllUsers = [];
+  cachedNotesMap = {};
+  clearSession();
+  clearInputs('loginUser', 'loginPass', 'regName', 'regUser', 'regPass', 'regPassConf');
   showLanding();
 }
+
+// ---------- Fechar modais com Escape + proteção de foco ----------
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const openOverlay = ['noteModalOverlay', 'notesModalOverlay', 'modalOverlay']
+    .map(id => document.getElementById(id))
+    .find(el => el && el.style.display !== 'none' && el.style.display !== '');
+  if (openOverlay) {
+    if (openOverlay.id === 'noteModalOverlay') closeNoteModal();
+    else if (openOverlay.id === 'notesModalOverlay') closeNotesModal();
+    else closeModal();
+  }
+});
 
 // ---------- Exposição Controlada para Eventos do HTML ----------
 window.showLogin                = showLogin;

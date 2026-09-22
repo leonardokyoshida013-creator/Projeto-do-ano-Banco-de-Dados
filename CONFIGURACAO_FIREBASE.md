@@ -47,10 +47,10 @@ const firebaseConfig = {
 
 ## PASSO 4 — Configurar as Regras de Segurança (Proteção do Banco)
 
-> ⚠️ **Atenção sobre Segurança:** Nunca utilize `allow read, write: if true;` em produção. Regras abertas permitem que qualquer usuário apague ou adultere documentos. Utilize as regras blindadas abaixo (também disponíveis no arquivo `firestore.rules`):
+> ⚠️ **Atenção sobre Segurança:** Nunca utilize `allow read, write: if true;` em produção. Regras abertas permitem que qualquer usuário apague ou adultere documentos. Utilize as regras a seguir (idênticas ao arquivo `firestore.rules`): validação de esquema, exigência de hash PBKDF2 + salt e **bloqueio de auto-promoção a administrador**.
 
 1. No menu lateral do Firebase Console, vá em **Firestore Database → Regras**
-2. **Apague** o conteúdo atual e cole as regras a seguir:
+2. **Apague** o conteúdo atual e cole as regras do arquivo [`firestore.rules`](firestore.rules) (mantido em sincronia com este guia):
 
 ```
 rules_version = '2';
@@ -58,9 +58,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isValidUsername(username) {
-      return username is string 
-        && username.size() >= 3 
-        && username.size() <= 30 
+      return username is string
+        && username.size() >= 3
+        && username.size() <= 30
         && username.matches('^[a-zA-Z0-9._-]+$');
     }
 
@@ -68,40 +68,60 @@ service cloud.firestore {
       return role == 'user' || role == 'adm';
     }
 
+    function isAdminSeed(username) {
+      return username in ['leonardo', 'abner', 'isabela', 'matheus'];
+    }
+
+    function hasValidCredentials(data) {
+      return data.keys().hasAll(['passwordHash', 'salt', 'iterations'])
+        && data.passwordHash is string && data.passwordHash.size() == 64
+        && data.salt is string && data.salt.size() == 32
+        && data.iterations is int && data.iterations >= 100000
+        && !data.keys().hasAny(['password']);
+    }
+
     function isValidUserDoc(data) {
       return data.keys().hasAll(['id', 'name', 'username', 'role', 'createdAt'])
         && data.id is string
         && data.name is string && data.name.size() > 0 && data.name.size() <= 100
         && data.username is string && isValidUsername(data.username)
+        && data.username == data.username.toLowerCase()
         && isValidRole(data.role)
-        && (
-          (data.keys().hasAll(['passwordHash', 'salt']) && data.passwordHash is string && data.salt is string)
-          || (data.keys().hasAll(['password']) && data.password is string)
-        );
+        && data.createdAt is string
+        && hasValidCredentials(data);
     }
 
     function isValidNoteDoc(data) {
-      return data.keys().hasAll(['text'])
+      return data.keys().hasOnly(['text', 'updatedAt'])
         && data.text is string
-        && data.text.size() <= 50000;
+        && data.text.size() <= 50000
+        && (!('updatedAt' in data) || data.updatedAt is string);
     }
 
     match /usuarios/{username} {
       allow read: if true;
-      allow create: if isValidUsername(username) 
+      allow create: if isValidUsername(username)
                     && request.resource.data.username == username
-                    && isValidUserDoc(request.resource.data);
-      allow update: if isValidUsername(username) 
+                    && request.resource.data.username == request.resource.data.username.toLowerCase()
+                    && isValidUserDoc(request.resource.data)
+                    && (request.resource.data.role == 'user'
+                        || (request.resource.data.role == 'adm' && isAdminSeed(username)));
+      allow update: if isValidUsername(username)
                     && request.resource.data.username == username
-                    && isValidUserDoc(request.resource.data);
+                    && request.resource.data.username == request.resource.data.username.toLowerCase()
+                    && isValidUserDoc(request.resource.data)
+                    && (resource.data.role == request.resource.data.role
+                        || (request.resource.data.role == 'adm'
+                            && isAdminSeed(username)
+                            && resource.data.role == 'adm'));
       allow delete: if resource.data.role != 'adm';
     }
 
     match /notas/{username} {
-      allow read: if true;
-      allow create, update: if isValidUsername(username) 
+      allow read: if isValidUsername(username);
+      allow create, update: if isValidUsername(username)
                             && isValidNoteDoc(request.resource.data);
-      allow delete: if true;
+      allow delete: if isValidUsername(username);
     }
   }
 }
