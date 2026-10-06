@@ -1,0 +1,321 @@
+# 🛡️ BancoSeguro
+
+> Plataforma web de autenticação e gerenciamento de usuários desenvolvida com foco em **segurança de aplicações, banco de dados e controle de acesso**.
+
+O **BancoSeguro** é uma aplicação web que implementa um sistema de autenticação, gerenciamento de usuários e armazenamento de anotações, utilizando **JavaScript, Node.js e Firebase Firestore**.
+
+O projeto foi desenvolvido com foco em aplicar conceitos de **bancos de dados, segurança da informação, criptografia, controle de acesso e desenvolvimento web** em uma aplicação funcional.
+
+---
+
+## 🚀 Funcionalidades
+
+* 🔐 Sistema de login e cadastro de usuários
+* 👤 Gerenciamento de usuários
+* 🛡️ Controle de acesso baseado em funções (RBAC)
+* 🔑 Armazenamento de senhas utilizando **PBKDF2 + SHA-256 + Salt**
+* 🚫 Proteção contra tentativas consecutivas de login
+* ⏱️ Expiração de sessão por inatividade
+* 📝 Sistema de anotações
+* ☁️ Integração com **Firebase Firestore**
+* 💾 Armazenamento local como mecanismo de fallback
+* 🧹 Sanitização de dados para prevenção de XSS
+* 📋 Validação de dados antes da gravação no banco
+* 🔒 Regras de segurança do Firestore
+* 🌐 Servidor HTTP local desenvolvido em Node.js
+* 🛡️ Content Security Policy (CSP) e outros cabeçalhos de segurança
+
+---
+
+## 🧰 Tecnologias utilizadas
+
+| Tecnologia           | Utilização                            |
+| -------------------- | ------------------------------------- |
+| **HTML5**            | Estrutura da aplicação                |
+| **CSS3**             | Interface e responsividade            |
+| **JavaScript**       | Lógica da aplicação                   |
+| **Node.js**          | Servidor HTTP local                   |
+| **Firebase**         | Infraestrutura de banco de dados      |
+| **Cloud Firestore**  | Persistência dos dados                |
+| **Web Crypto API**   | Hash seguro de senhas                 |
+| **PBKDF2 / SHA-256** | Derivação e proteção das credenciais  |
+| **Git / GitHub**     | Versionamento e hospedagem do projeto |
+
+---
+
+## 🏗️ Arquitetura
+
+A aplicação é organizada em diferentes camadas:
+
+```text
+BancoSeguro
+│
+├── index.html
+│   └── Interface da aplicação
+│
+├── style.css
+│   └── Estilos e layout
+│
+├── app.js
+│   └── Autenticação, dashboard e regras da aplicação
+│
+├── db.js
+│   └── Persistência e comunicação com o Firestore
+│
+├── firestore.rules
+│   └── Regras de segurança do banco
+│
+├── server.js
+│   └── Servidor HTTP local
+│
+└── CONFIGURACAO_FIREBASE.md
+    └── Guia de configuração do Firebase
+```
+
+---
+
+## 🔐 Segurança
+
+Um dos principais objetivos do projeto é demonstrar a aplicação de conceitos de segurança no desenvolvimento web.
+
+### Hash de senhas
+
+As senhas não são armazenadas diretamente. O projeto utiliza:
+
+```text
+Senha
+  ↓
+PBKDF2
+  ↓
+SHA-256
+  ↓
+Salt único
+  ↓
+Hash armazenado
+```
+
+Cada usuário possui um **Salt individual**, dificultando ataques baseados em tabelas pré-computadas.
+
+Para novas contas, o projeto utiliza **310.000 iterações de PBKDF2-SHA256**.
+
+---
+
+### 🛑 Proteção contra força bruta
+
+O sistema possui um mecanismo de limitação de tentativas de login.
+
+Após várias tentativas incorretas consecutivas, o acesso é temporariamente bloqueado, reduzindo a possibilidade de ataques automatizados de força bruta.
+
+---
+
+### 🧹 Proteção contra XSS
+
+Dados inseridos pelo usuário são tratados antes de serem adicionados ao DOM.
+
+O projeto utiliza sanitização e escape de conteúdo HTML para reduzir riscos de **Cross-Site Scripting (XSS)**.
+
+---
+
+### 👥 RBAC — Role-Based Access Control
+
+O sistema possui diferentes níveis de acesso:
+
+```text
+USER
+ └── Acesso às funcionalidades permitidas
+
+ADM
+ ├── Gerenciamento de usuários
+ ├── Visualização administrativa
+ └── Operações administrativas
+```
+
+As regras do Firestore também possuem validações para impedir que usuários comuns simplesmente alterem seu próprio nível de acesso para administrador.
+
+---
+
+### 🔒 Regras do Firestore
+
+O arquivo `firestore.rules` valida:
+
+* Formato do nome de usuário
+* Tamanho dos campos
+* Estrutura dos documentos
+* Hash e Salt das credenciais
+* Função do usuário
+* Tentativas de promoção indevida para administrador
+* Estrutura das anotações
+
+Isso adiciona uma camada de proteção diretamente no banco de dados.
+
+---
+
+## ☁️ Firebase Firestore
+
+O projeto utiliza o **Cloud Firestore** para armazenamento dos dados.
+
+Principais coleções:
+
+```text
+usuarios/
+    └── username
+         ├── id
+         ├── name
+         ├── username
+         ├── role
+         ├── passwordHash
+         ├── salt
+         ├── iterations
+         └── createdAt
+
+notas/
+    └── username
+         ├── text
+         └── updatedAt
+```
+
+A aplicação também possui armazenamento local como mecanismo de fallback caso o Firestore não esteja disponível.
+
+---
+
+## 💻 Como executar
+
+### Pré-requisitos
+
+* [Node.js](https://nodejs.org/)
+* Navegador moderno
+* Projeto configurado no Firebase, caso queira utilizar o Firestore
+
+### 1. Clone o repositório
+
+```bash
+git clone https://github.com/SEU-USUARIO/SEU-REPOSITORIO.git
+```
+
+### 2. Entre na pasta
+
+```bash
+cd Projeto-do-ano-Banco-de-Dados-main
+```
+
+### 3. Inicie o servidor
+
+```bash
+node server.js
+```
+
+O servidor será iniciado, por padrão, em:
+
+```text
+http://localhost:3000
+```
+
+### Windows
+
+Também é possível utilizar:
+
+```text
+iniciar_site.bat
+```
+
+para iniciar a aplicação rapidamente.
+
+---
+
+## ⚙️ Configuração do Firebase
+
+Para utilizar o Firestore:
+
+1. Crie um projeto no Firebase.
+2. Crie um banco **Cloud Firestore**.
+3. Registre uma aplicação Web.
+4. Configure os dados do Firebase em `db.js`.
+5. Publique as regras presentes em `firestore.rules`.
+
+As instruções detalhadas estão disponíveis em:
+
+```text
+CONFIGURACAO_FIREBASE.md
+```
+
+> **Importante:** as credenciais/configurações do Firebase devem ser tratadas de acordo com as regras de segurança do serviço. Em uma implantação real, as regras do Firestore e a arquitetura de autenticação devem ser revisadas antes de colocar a aplicação em produção.
+
+---
+
+## 🖥️ Interface
+
+A aplicação possui:
+
+* Página inicial
+* Tela de login
+* Cadastro de usuários
+* Dashboard administrativo
+* Gerenciamento de usuários
+* Sistema de anotações
+* Indicadores de segurança
+* Interface responsiva
+
+---
+
+## 📚 Conceitos aplicados
+
+Durante o desenvolvimento foram utilizados conceitos de:
+
+* Banco de dados NoSQL
+* Cloud Firestore
+* CRUD
+* Autenticação
+* Autorização
+* RBAC
+* Criptografia de senhas
+* PBKDF2
+* SHA-256
+* Salt criptográfico
+* Rate Limiting
+* XSS
+* Content Security Policy
+* Validação de dados
+* Sanitização de entradas
+* Gerenciamento de sessão
+* Desenvolvimento Front-End
+* Desenvolvimento Back-End
+* Segurança de aplicações web
+
+---
+
+## 🔮 Próximos passos
+
+Algumas melhorias planejadas para uma versão de produção:
+
+* Implementação do **Firebase Authentication**
+* Vinculação das regras do Firestore à identidade autenticada
+* Separação completa entre Front-End e Back-End
+* Implementação de recuperação de senha
+* Autenticação multifator (MFA)
+* Logs e auditoria de atividades
+* Melhorias no gerenciamento de sessões
+* Testes automatizados
+* Deploy em ambiente de produção
+* Monitoramento de segurança
+
+---
+
+## 🎯 Objetivo do projeto
+
+O projeto foi desenvolvido para colocar em prática conhecimentos de **Banco de Dados, Desenvolvimento Web e Segurança da Informação**, criando uma aplicação que vai além de uma interface visual e implementa mecanismos reais de proteção de dados e controle de acesso.
+
+---
+
+## 👨‍💻 Projeto
+
+**BancoSeguro — Sistema de autenticação e gerenciamento de usuários**
+
+Desenvolvido como projeto acadêmico com foco em:
+
+> **Banco de Dados • Desenvolvimento Web • Segurança da Informação**
+
+---
+
+## 📄 Licença
+
+Projeto desenvolvido para fins educacionais e de portfólio.
